@@ -50,15 +50,30 @@ class Person {
 }
 
 class PersonService {
+  // For Android emulator use: http://10.0.2.2:8000/api/persons
+  // For physical device use your computer's IP: http://192.168.x.x:8000/api/persons
   static const String baseUrl = 'http://127.0.0.1:8000/api/persons';
 
   static Future<List<Person>> getPersons() async {
-    final response = await http.get(Uri.parse(baseUrl));
-    if (response.statusCode == 200) {
-      List<dynamic> data = json.decode(response.body);
-      return data.map((json) => Person.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to load persons');
+    try {
+      final response = await http.get(Uri.parse(baseUrl)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout. Make sure Django API is running.');
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Person.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load persons: Status ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
+        throw Exception('Cannot connect to API. Make sure:\n1. Django server is running on http://127.0.0.1:8000\n2. For Android emulator, change URL to http://10.0.2.2:8000/api/persons');
+      }
+      rethrow;
     }
   }
 
@@ -72,18 +87,31 @@ class PersonService {
   }
 
   static Future<Person> createPerson(String name, int? born) async {
-    final response = await http.post(
-      Uri.parse(baseUrl),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'name': name,
-        'born': born,
-      }),
-    );
-    if (response.statusCode == 201) {
-      return Person.fromJson(json.decode(response.body));
-    } else {
-      throw Exception('Failed to create person');
+    try {
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'name': name,
+          'born': born,
+        }),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout. Make sure Django API is running.');
+        },
+      );
+      
+      if (response.statusCode == 201) {
+        return Person.fromJson(json.decode(response.body));
+      } else {
+        throw Exception('Failed to create person: Status ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
+        throw Exception('Cannot connect to API. Make sure Django server is running on http://127.0.0.1:8000');
+      }
+      rethrow;
     }
   }
 
@@ -145,7 +173,15 @@ class _PersonListScreenState extends State<PersonListScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading persons: $e')),
+          SnackBar(
+            content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: _loadPersons,
+            ),
+          ),
         );
       }
     }
@@ -333,7 +369,11 @@ class _PersonFormScreenState extends State<PersonFormScreen> {
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error saving person: $e')),
+            SnackBar(
+              content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
           );
         }
       }

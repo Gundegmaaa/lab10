@@ -25,12 +25,20 @@ export default function Home() {
   const fetchPersons = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await axios.get<Person[]>(API_BASE_URL);
       setPersons(response.data);
-      setError(null);
-    } catch (err) {
-      setError('Failed to load persons. Make sure the Django API is running.');
-      console.error(err);
+    } catch (err: any) {
+      let errorMessage = 'Failed to load persons. ';
+      if (err.response) {
+        errorMessage += `Status: ${err.response.status}`;
+      } else if (err.request) {
+        errorMessage += 'Cannot connect to API. Make sure Django server is running on http://127.0.0.1:8000';
+      } else {
+        errorMessage += err.message || 'Unknown error occurred';
+      }
+      setError(errorMessage);
+      console.error('Error details:', err);
     } finally {
       setLoading(false);
     }
@@ -39,6 +47,7 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      setError(null);
       const personData = {
         name: formData.name,
         born: formData.born ? parseInt(formData.born) : null,
@@ -54,9 +63,28 @@ export default function Home() {
       setEditingPerson(null);
       setFormData({ name: '', born: '' });
       fetchPersons();
-    } catch (err) {
-      setError('Failed to save person');
-      console.error(err);
+    } catch (err: any) {
+      let errorMessage = 'Failed to save person. ';
+      if (err.response) {
+        // Server responded with error status
+        errorMessage += `Status: ${err.response.status}. `;
+        if (err.response.data) {
+          if (typeof err.response.data === 'string') {
+            errorMessage += err.response.data;
+          } else if (err.response.data.error) {
+            errorMessage += err.response.data.error;
+          } else if (err.response.data.name) {
+            errorMessage += err.response.data.name[0];
+          }
+        }
+      } else if (err.request) {
+        // Request was made but no response
+        errorMessage += 'Cannot connect to API. Make sure Django server is running on http://127.0.0.1:8000';
+      } else {
+        errorMessage += err.message || 'Unknown error occurred';
+      }
+      setError(errorMessage);
+      console.error('Error details:', err);
     }
   };
 
