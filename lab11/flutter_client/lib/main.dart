@@ -33,11 +33,41 @@ class Person {
   });
 
   factory Person.fromJson(Map<String, dynamic> json) {
-    return Person(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      born: json['born'] as int?,
-    );
+    try {
+      // Handle different possible types for id (int, num, etc.)
+      int id;
+      if (json['id'] is int) {
+        id = json['id'] as int;
+      } else if (json['id'] is num) {
+        id = (json['id'] as num).toInt();
+      } else {
+        id = int.parse(json['id'].toString());
+      }
+      
+      // Handle name
+      String name = json['name']?.toString() ?? '';
+      
+      // Handle born (can be null, int, or num)
+      int? born;
+      if (json['born'] != null) {
+        if (json['born'] is int) {
+          born = json['born'] as int;
+        } else if (json['born'] is num) {
+          born = (json['born'] as num).toInt();
+        } else {
+          born = int.tryParse(json['born'].toString());
+        }
+      }
+      
+      return Person(
+        id: id,
+        name: name,
+        born: born,
+      );
+    } catch (e) {
+      print('Person.fromJson error: $e, JSON: $json');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -50,9 +80,9 @@ class Person {
 }
 
 class PersonService {
-  // For Android emulator use: http://10.0.2.2:8000/api/persons
-  // For physical device use your computer's IP: http://192.168.x.x:8000/api/persons
-  static const String baseUrl = 'http://127.0.0.1:8000/api/persons';
+  // For Android emulator use: http://10.0.2.2:8000/api/persons/
+  // For physical device use your computer's IP: http://192.168.x.x:8000/api/persons/
+  static const String baseUrl = 'http://127.0.0.1:8000/api/persons/';
 
   static Future<List<Person>> getPersons() async {
     try {
@@ -63,22 +93,48 @@ class PersonService {
         },
       );
       
+      print('GET Response Status: ${response.statusCode}');
+      print('GET Response Body: ${response.body}');
+      
       if (response.statusCode == 200) {
-        List<dynamic> data = json.decode(response.body);
-        return data.map((json) => Person.fromJson(json)).toList();
+        if (response.body.isEmpty) {
+          return [];
+        }
+        
+        try {
+          final decoded = json.decode(response.body);
+          print('Decoded response: $decoded');
+          
+          if (decoded is List) {
+            return decoded.map((json) {
+              try {
+                return Person.fromJson(json as Map<String, dynamic>);
+              } catch (e) {
+                print('Error parsing person: $json, Error: $e');
+                rethrow;
+              }
+            }).toList();
+          } else {
+            throw Exception('Expected List but got: ${decoded.runtimeType}');
+          }
+        } catch (e) {
+          print('JSON decode error: $e');
+          throw Exception('Failed to parse response: $e');
+        }
       } else {
         throw Exception('Failed to load persons: Status ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
+      print('getPersons error: $e');
       if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
-        throw Exception('Cannot connect to API. Make sure:\n1. Django server is running on http://127.0.0.1:8000\n2. For Android emulator, change URL to http://10.0.2.2:8000/api/persons');
+        throw Exception('Cannot connect to API. Make sure:\n1. Django server is running on http://127.0.0.1:8000\n2. For Android emulator, change URL to http://10.0.2.2:8000/api/persons/');
       }
       rethrow;
     }
   }
 
   static Future<Person> getPerson(int id) async {
-    final response = await http.get(Uri.parse('$baseUrl/$id/'));
+    final response = await http.get(Uri.parse('${baseUrl}$id/'));
     if (response.statusCode == 200) {
       return Person.fromJson(json.decode(response.body));
     } else {
@@ -88,13 +144,18 @@ class PersonService {
 
   static Future<Person> createPerson(String name, int? born) async {
     try {
+      final requestBody = json.encode({
+        'name': name,
+        'born': born,
+      });
+      
+      print('POST Request URL: $baseUrl');
+      print('POST Request Body: $requestBody');
+      
       final response = await http.post(
         Uri.parse(baseUrl),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'name': name,
-          'born': born,
-        }),
+        body: requestBody,
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
@@ -102,12 +163,21 @@ class PersonService {
         },
       );
       
+      print('POST Response Status: ${response.statusCode}');
+      print('POST Response Body: ${response.body}');
+      
       if (response.statusCode == 201) {
-        return Person.fromJson(json.decode(response.body));
+        try {
+          return Person.fromJson(json.decode(response.body) as Map<String, dynamic>);
+        } catch (e) {
+          print('Error parsing create response: $e');
+          throw Exception('Failed to parse created person: $e');
+        }
       } else {
         throw Exception('Failed to create person: Status ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
+      print('createPerson error: $e');
       if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
         throw Exception('Cannot connect to API. Make sure Django server is running on http://127.0.0.1:8000');
       }
@@ -121,7 +191,7 @@ class PersonService {
     if (born != null) body['born'] = born;
 
     final response = await http.patch(
-      Uri.parse('$baseUrl/$id/'),
+      Uri.parse('${baseUrl}$id/'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode(body),
     );
@@ -133,7 +203,7 @@ class PersonService {
   }
 
   static Future<void> deletePerson(int id) async {
-    final response = await http.delete(Uri.parse('$baseUrl/$id/'));
+    final response = await http.delete(Uri.parse('${baseUrl}$id/'));
     if (response.statusCode != 200) {
       throw Exception('Failed to delete person');
     }
@@ -162,12 +232,15 @@ class _PersonListScreenState extends State<PersonListScreen> {
       _isLoading = true;
     });
     try {
+      print('Loading persons...');
       final persons = await PersonService.getPersons();
+      print('Loaded ${persons.length} persons');
       setState(() {
         _persons = persons;
         _isLoading = false;
       });
     } catch (e) {
+      print('_loadPersons error: $e');
       setState(() {
         _isLoading = false;
       });
@@ -262,7 +335,19 @@ class _PersonListScreenState extends State<PersonListScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _persons.isEmpty
-              ? const Center(child: Text('No persons found'))
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('No persons found'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadPersons,
+                        child: const Text('Refresh'),
+                      ),
+                    ],
+                  ),
+                )
               : ListView.builder(
                   itemCount: _persons.length,
                   itemBuilder: (context, index) {
