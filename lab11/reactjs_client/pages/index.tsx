@@ -54,7 +54,7 @@ export default function Home() {
       };
 
       if (editingPerson) {
-        await axios.patch(`${API_BASE_URL}/${editingPerson.id}/`, personData);
+        await axios.patch(`${API_BASE_URL}${editingPerson.id}/`, personData);
       } else {
         await axios.post(API_BASE_URL, personData);
       }
@@ -103,7 +103,7 @@ export default function Home() {
     }
 
     try {
-      await axios.delete(`${API_BASE_URL}/${id}/`);
+      await axios.delete(`${API_BASE_URL}${id}/`);
       fetchPersons();
     } catch (err) {
       setError('Failed to delete person');
